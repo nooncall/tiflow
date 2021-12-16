@@ -31,7 +31,7 @@ type Task struct {
 	// If a value is empty, it deletes the key/value entry in db.
 	Events map[Key][]byte
 	// Requests an iterator when it is not nil.
-	Iter *IterRequest
+	IterReq *IterRequest
 
 	// For clean-up table task.
 	Cleanup            bool

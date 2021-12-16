@@ -149,8 +149,8 @@ func makeTask(events map[message.Key][]byte, rg [][]byte) ([]actormsg.Message, c
 		}
 	}
 	return []actormsg.Message{actormsg.SorterMessage(message.Task{
-		Events: events,
-		Iter:   iterReq,
+		Events:  events,
+		IterReq: iterReq,
 	})}, iterCh
 }
 

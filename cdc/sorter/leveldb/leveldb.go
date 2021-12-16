@@ -234,9 +234,9 @@ func (ldb *DBActor) Poll(ctx context.Context, tasks []actormsg.Message) bool {
 				log.Panic("db error", zap.Error(err))
 			}
 		}
-		if task.Iter != nil {
+		if task.IterReq != nil {
 			// Append to slice for later batch acquiring iterators.
-			ldb.iterQ.push(task.UID, task.TableID, task.Iter)
+			ldb.iterQ.push(task.UID, task.TableID, task.IterReq)
 			requireIter = true
 		}
 	}
