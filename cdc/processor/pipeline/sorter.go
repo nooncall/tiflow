@@ -101,7 +101,7 @@ func (n *sorterNode) Init(ctx pipeline.NodeContext) error {
 			startTs := ctx.ChangefeedVars().Info.StartTs
 			actorID := ctx.GlobalVars().SorterSystem.ActorID(uint64(n.tableID))
 			router := ctx.GlobalVars().SorterSystem.Router()
-			levelSorter := leveldb.NewLevelDBSorter(
+			levelSorter := leveldb.NewDBSorter(
 				ctx, n.tableID, startTs, router, actorID, config.GetGlobalServerConfig().Debug.DB)
 			n.cleanID = actorID
 			n.cleanTask = levelSorter.CleanupTask()

@@ -180,17 +180,12 @@ func (ldb *DBActor) acquireIterators() {
 
 		iterCh := req.IterCh
 		iterRange := req.Range
-		snap, err := ldb.db.Snapshot()
-		if err != nil {
-			log.Panic("db error", zap.Error(err))
-		}
-		iter := snap.Iterator(iterRange[0], iterRange[1])
+		iter := ldb.db.Iterator(iterRange[0], iterRange[1])
 		iterCh <- &message.LimitedIterator{
 			Iterator:   iter,
 			Sema:       ldb.iterSem,
 			ResolvedTs: req.ResolvedTs,
 		}
-		snap.Release()
 		close(iterCh)
 	}
 }
