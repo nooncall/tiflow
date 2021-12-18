@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/pebble"
-	"github.com/pingcap/ticdc/pkg/config"
+	"github.com/pingcap/tiflow/pkg/config"
 	"github.com/stretchr/testify/require"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
@@ -113,6 +113,9 @@ func testDB(t *testing.T, db DB) {
 	require.Nil(t, iter.Release())
 	lsnap.Release()
 	require.Nil(t, snap.Release())
+
+	// Compact
+	require.Nil(t, db.Compact([]byte{0x00}, []byte{0xff}))
 
 	// Close
 	require.Nil(t, db.Close())
