@@ -71,18 +71,12 @@ func testDB(t *testing.T, db DB) {
 	batch.Reset()
 	require.EqualValues(t, lbatch.Len(), batch.Count())
 
-	// Snapshot
-	lsnap, err := ldb.GetSnapshot()
-	require.Nil(t, err)
-	snap, err := db.Snapshot()
-	require.Nil(t, err)
-
 	// Iterator
-	liter := lsnap.NewIterator(&util.Range{
+	liter := ldb.NewIterator(&util.Range{
 		Start: []byte(""),
 		Limit: []byte("k4"),
 	}, nil)
-	iter := snap.Iterator([]byte(""), []byte("k4"))
+	iter := db.Iterator([]byte(""), []byte("k4"))
 	// First
 	require.True(t, liter.First())
 	require.True(t, iter.First())
@@ -111,8 +105,6 @@ func testDB(t *testing.T, db DB) {
 	// Release
 	liter.Release()
 	require.Nil(t, iter.Release())
-	lsnap.Release()
-	require.Nil(t, snap.Release())
 
 	// Compact
 	require.Nil(t, db.Compact([]byte{0x00}, []byte{0xff}))
