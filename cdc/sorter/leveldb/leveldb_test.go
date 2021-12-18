@@ -252,7 +252,7 @@ func TestAcquireIterators(t *testing.T) {
 	closed = !ldb.Poll(ctx, []actormsg.Message{actormsg.TickMessage()})
 	require.False(t, closed)
 	select {
-	case _, ok = <-iterCh2:
+	case <-iterCh2:
 		require.FailNow(t, "should not acquire an iterator")
 	default:
 	}
