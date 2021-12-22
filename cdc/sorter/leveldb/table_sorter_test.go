@@ -39,7 +39,8 @@ func newTestDBSorter(
 	mb := actor.NewMailbox(1, capacity)
 	router.InsertMailbox4Test(id, mb)
 	cfg := config.GetDefaultServerConfig().Clone().Debug.DB
-	ls := NewDBSorter(ctx, 1, 1, router, id, cfg)
+	compact := NewCompactScheduler(nil, cfg)
+	ls := NewDBSorter(ctx, 1, 1, router, id, compact, cfg)
 	return ls, mb
 }
 

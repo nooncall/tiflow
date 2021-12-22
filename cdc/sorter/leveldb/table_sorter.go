@@ -15,6 +15,7 @@ package leveldb
 
 import (
 	"context"
+	"math"
 	"sync/atomic"
 	"time"
 
@@ -50,6 +51,7 @@ func allocID() uint32 {
 type Sorter struct {
 	actorID actor.ID
 	router  *actor.Router
+	compact *CompactScheduler
 	uid     uint32
 	tableID uint64
 	serde   *encoding.MsgPackGenSerde
@@ -74,7 +76,8 @@ type Sorter struct {
 // NewDBSorter creates a new DBSorter
 func NewDBSorter(
 	ctx context.Context, tableID int64, startTs uint64,
-	router *actor.Router, actorID actor.ID, cfg *config.DBConfig,
+	router *actor.Router, actorID actor.ID, compact *CompactScheduler,
+	cfg *config.DBConfig,
 ) *Sorter {
 	captureAddr := util.CaptureAddrFromCtx(ctx)
 	changefeedID := util.ChangefeedIDFromCtx(ctx)
@@ -83,6 +86,7 @@ func NewDBSorter(
 	return &Sorter{
 		actorID:            actorID,
 		router:             router,
+		compact:            compact,
 		uid:                allocID(),
 		tableID:            uint64(tableID),
 		lastSentResolvedTs: startTs,
@@ -604,6 +608,7 @@ func (ls *Sorter) poll(ctx context.Context, state *pollState) error {
 		return ls.router.SendB(ctx, ls.actorID, actormsg.SorterMessage(task))
 	}
 
+	startGet := time.Now()
 	var hasIter bool
 	task.IterReq, hasIter = state.tryGetIterator(ls.uid, ls.tableID)
 	// Send write/read task to leveldb.
@@ -611,6 +616,10 @@ func (ls *Sorter) poll(ctx context.Context, state *pollState) error {
 	if err != nil || !hasIter {
 		// Skip read iterator if send fails or there is no iterator.
 		return errors.Trace(err)
+	}
+	if time.Since(startGet) > 500*time.Millisecond {
+		// Force trigger a compaction if Iterator.Fisrt is too slow.
+		ls.compact.maybeCompact(ls.actorID, int(math.MaxInt32))
 	}
 
 	// Read and send resolved events from iterator.
