@@ -81,6 +81,12 @@ type DBConfig struct {
 	// The default value is 10000, 10s
 	IteratorMaxAliveDuration int `toml:"iterator-max-alive-duration" json:"iterator-max-alive-duration"`
 
+	// IteratorSlowReadDuration is the iterator slow read threshold.
+	// A reading that exceeds the duration triggers a db compaction.
+	//
+	// The default value is 256, 256ms.
+	IteratorSlowReadDuration int `toml:"iterator-slow-read-duration" json:"iterator-slow-read-duration"`
+
 	// CleanupSpeedLimit limits clean up speed, based on key value entry count.
 	//
 	// The default value is 10000.

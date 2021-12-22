@@ -680,10 +680,17 @@ func TestStateIterator(t *testing.T) {
 	sema := semaphore.NewWeighted(1)
 	metricIterDuration := sorterIterReadDurationHistogram.MustCurryWith(
 		prometheus.Labels{"capture": t.Name(), "id": t.Name()})
+	cfg := config.GetDefaultServerConfig().Clone().Debug.DB
+	mb := actor.NewMailbox(1, 1)
+	router := actor.NewRouter(t.Name())
+	router.InsertMailbox4Test(mb.ID(), mb)
 	state := pollState{
-		iterMaxAliveDuration: 100 * time.Millisecond,
-		metricIterFirst:      metricIterDuration.WithLabelValues("first"),
-		metricIterRelease:    metricIterDuration.WithLabelValues("release"),
+		actorID:               mb.ID(),
+		iterFirstSlowDuration: 100 * time.Second,
+		compact:               NewCompactScheduler(router, cfg),
+		iterMaxAliveDuration:  100 * time.Millisecond,
+		metricIterFirst:       metricIterDuration.WithLabelValues("first"),
+		metricIterRelease:     metricIterDuration.WithLabelValues("release"),
 	}
 
 	// First get returns a request.
@@ -730,6 +737,31 @@ func TestStateIterator(t *testing.T) {
 
 	// Release empty iterator.
 	require.Nil(t, state.tryReleaseIterator())
+
+	// Slow first must send a compaction task.
+	req3, ok := state.tryGetIterator(1, 1)
+	require.False(t, ok)
+	require.NotNil(t, req3)
+	require.Nil(t, sema.Acquire(ctx, 1))
+	req3.IterCh <- &message.LimitedIterator{
+		Iterator: db.Iterator([]byte{}, []byte{}),
+		Sema:     sema,
+	}
+	// No compaction task yet.
+	_, ok = mb.Receive()
+	require.False(t, ok)
+	// Always slow.
+	state.iterFirstSlowDuration = time.Duration(0)
+	_, ok = state.tryGetIterator(1, 1)
+	require.True(t, ok)
+	require.NotNil(t, state.iter)
+	// Must recv a compaction task.
+	_, ok = mb.Receive()
+	require.True(t, ok)
+	// Release iterator.
+	time.Sleep(2 * state.iterMaxAliveDuration)
+	require.Nil(t, state.tryReleaseIterator())
+	require.Nil(t, state.iter)
 
 	require.Nil(t, db.Close())
 }
@@ -793,8 +825,8 @@ func TestPoll(t *testing.T) {
 				eventsBuf: make([]*model.PolymorphicEvent, 2),
 				outputBuf: newOutputBuffer(1),
 			},
-			// An empty snapshot.
-			inputIter: newEmptySnapshot(ctx, t, db, sema),
+			// An empty iterator.
+			inputIter: newEmptyIterator(ctx, t, db, sema),
 
 			expectEvents:     []*model.PolymorphicEvent{},
 			expectDeleteKeys: []message.Key{},
@@ -922,8 +954,8 @@ func handleTask(mb actor.Mailbox, iter *message.LimitedIterator, wg *sync.WaitGr
 		}
 		if iter != nil {
 			task.SorterTask.IterReq.IterCh <- iter
+			close(task.SorterTask.IterReq.IterCh)
 		}
-		close(task.SorterTask.IterReq.IterCh)
 		return
 	}
 }
@@ -940,7 +972,7 @@ func newIterator(
 	}
 }
 
-func newEmptySnapshot(
+func newEmptyIterator(
 	ctx context.Context, t *testing.T, db db.DB, sema *semaphore.Weighted,
 ) func() *message.LimitedIterator {
 	return func() *message.LimitedIterator {
