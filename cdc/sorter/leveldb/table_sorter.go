@@ -15,6 +15,7 @@ package leveldb
 
 import (
 	"context"
+	"math"
 	"sync/atomic"
 	"time"
 
@@ -50,6 +51,7 @@ func allocID() uint32 {
 type Sorter struct {
 	actorID actor.ID
 	router  *actor.Router
+	compact *CompactScheduler
 	uid     uint32
 	tableID uint64
 	serde   *encoding.MsgPackGenSerde
@@ -71,10 +73,11 @@ type Sorter struct {
 	metricIterNextDuration      prometheus.Observer
 }
 
-// NewLevelDBSorter creates a new LevelDBSorter
-func NewLevelDBSorter(
+// NewDBSorter creates a new DBSorter
+func NewDBSorter(
 	ctx context.Context, tableID int64, startTs uint64,
-	router *actor.Router, actorID actor.ID, cfg *config.DBConfig,
+	router *actor.Router, actorID actor.ID, compact *CompactScheduler,
+	cfg *config.DBConfig,
 ) *Sorter {
 	captureAddr := util.CaptureAddrFromCtx(ctx)
 	changefeedID := util.ChangefeedIDFromCtx(ctx)
@@ -83,6 +86,7 @@ func NewLevelDBSorter(
 	return &Sorter{
 		actorID:            actorID,
 		router:             router,
+		compact:            compact,
 		uid:                allocID(),
 		tableID:            uint64(tableID),
 		lastSentResolvedTs: startTs,
@@ -352,7 +356,7 @@ func (ls *Sorter) outputIterEvents(
 			return false, 0, errors.Trace(err)
 		}
 		if commitTs > event.CRTs || commitTs > resolvedTs {
-			log.Panic("event commit ts is less than previous event or larger than resolved ts",
+			log.Panic("event commit ts regression",
 				zap.Any("event", event), zap.Stringer("key", message.Key(iter.Key())),
 				zap.Uint64("ts", commitTs), zap.Uint64("resolvedTs", resolvedTs))
 		}
@@ -426,11 +430,16 @@ type pollState struct {
 	// All resolved events before the resolved ts are outputted.
 	exhaustedResolvedTs uint64
 
-	iter                 *message.LimitedIterator
-	iterCh               chan *message.LimitedIterator
-	iterResolvedTs       uint64
+	// A channel for receiving iterator asynchronously.
+	iterCh chan *message.LimitedIterator
+	// A iterator for reading resolved events, up to the `iterResolvedTs`.
+	iter           *message.LimitedIterator
+	iterResolvedTs uint64
+	// A flag to mark whether the current position has been read.
+	iterHasRead bool
+	// A timestamp when iterator was created.
+	// Iterator is released once it execced `iterMaxAliveDuration`.
 	iterAliveTime        time.Time
-	iterLastNextRead     bool
 	iterMaxAliveDuration time.Duration
 
 	metricIterFirst   prometheus.Observer
@@ -514,7 +523,7 @@ func (state *pollState) tryGetIterator(
 		start := time.Now()
 		state.iterAliveTime = start
 		state.iterResolvedTs = iter.ResolvedTs
-		state.iterLastNextRead = false
+		state.iterHasRead = false
 		state.iter.First()
 		state.metricIterFirst.Observe(time.Since(start).Seconds())
 		return nil, true
@@ -536,7 +545,7 @@ func (state *pollState) tryReleaseIterator() error {
 		}
 		state.metricIterRelease.Observe(time.Since(now).Seconds())
 		state.iter = nil
-		state.iterLastNextRead = true
+		state.iterHasRead = true
 
 		if state.iterCh != nil {
 			log.Panic("there must not be iterCh", zap.Any("iter", state.iter))
@@ -599,6 +608,7 @@ func (ls *Sorter) poll(ctx context.Context, state *pollState) error {
 		return ls.router.SendB(ctx, ls.actorID, actormsg.SorterMessage(task))
 	}
 
+	startGet := time.Now()
 	var hasIter bool
 	task.IterReq, hasIter = state.tryGetIterator(ls.uid, ls.tableID)
 	// Send write/read task to leveldb.
@@ -607,21 +617,25 @@ func (ls *Sorter) poll(ctx context.Context, state *pollState) error {
 		// Skip read iterator if send fails or there is no iterator.
 		return errors.Trace(err)
 	}
+	if time.Since(startGet) > 500*time.Millisecond {
+		// Force trigger a compaction if Iterator.Fisrt is too slow.
+		ls.compact.maybeCompact(ls.actorID, int(math.MaxInt32))
+	}
 
 	// Read and send resolved events from iterator.
 	hasReadNext, exhaustedResolvedTs, err := ls.outputIterEvents(
-		state.iter, state.iterLastNextRead, state.outputBuf, state.iterResolvedTs)
+		state.iter, state.iterHasRead, state.outputBuf, state.iterResolvedTs)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	if exhaustedResolvedTs > state.exhaustedResolvedTs {
 		state.exhaustedResolvedTs = exhaustedResolvedTs
 	}
-	state.iterLastNextRead = hasReadNext
+	state.iterHasRead = hasReadNext
 	return state.tryReleaseIterator()
 }
 
-// Run runs LevelDBSorter
+// Run runs DBSorter
 func (ls *Sorter) Run(ctx context.Context) error {
 	state := &pollState{
 		eventsBuf: make([]*model.PolymorphicEvent, batchReceiveEventSize),
