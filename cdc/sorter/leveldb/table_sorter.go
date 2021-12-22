@@ -56,7 +56,8 @@ type Sorter struct {
 	tableID uint64
 	serde   *encoding.MsgPackGenSerde
 
-	iterAliveDuration time.Duration
+	iterMaxAliveDuration  time.Duration
+	iterFirstSlowDuration time.Duration
 
 	lastSentResolvedTs uint64
 	lastEvent          *model.PolymorphicEvent
@@ -91,7 +92,9 @@ func NewDBSorter(
 		tableID:            uint64(tableID),
 		lastSentResolvedTs: startTs,
 		serde:              &encoding.MsgPackGenSerde{},
-		iterAliveDuration:  time.Duration(cfg.IteratorMaxAliveDuration) * time.Millisecond,
+
+		iterMaxAliveDuration:  time.Duration(cfg.IteratorMaxAliveDuration) * time.Millisecond,
+		iterFirstSlowDuration: time.Duration(cfg.IteratorSlowReadDuration) * time.Millisecond,
 
 		inputCh:  make(chan *model.PolymorphicEvent, sorterInputCap),
 		outputCh: make(chan *model.PolymorphicEvent, sorterOutputCap),
@@ -430,6 +433,16 @@ type pollState struct {
 	// All resolved events before the resolved ts are outputted.
 	exhaustedResolvedTs uint64
 
+	// Compactor actor ID.
+	actorID actor.ID
+	// A scheduler that triggers db compaction to speed up Iterator.First().
+	compact *CompactScheduler
+	// A threshold of triggering db compaction.
+	iterFirstSlowDuration time.Duration
+	// A timestamp when iterator was created.
+	// Iterator is released once it execced `iterMaxAliveDuration`.
+	iterAliveTime        time.Time
+	iterMaxAliveDuration time.Duration
 	// A channel for receiving iterator asynchronously.
 	iterCh chan *message.LimitedIterator
 	// A iterator for reading resolved events, up to the `iterResolvedTs`.
@@ -437,10 +450,6 @@ type pollState struct {
 	iterResolvedTs uint64
 	// A flag to mark whether the current position has been read.
 	iterHasRead bool
-	// A timestamp when iterator was created.
-	// Iterator is released once it execced `iterMaxAliveDuration`.
-	iterAliveTime        time.Time
-	iterMaxAliveDuration time.Duration
 
 	metricIterFirst   prometheus.Observer
 	metricIterRelease prometheus.Observer
@@ -525,7 +534,12 @@ func (state *pollState) tryGetIterator(
 		state.iterResolvedTs = iter.ResolvedTs
 		state.iterHasRead = false
 		state.iter.First()
-		state.metricIterFirst.Observe(time.Since(start).Seconds())
+		duration := time.Since(start)
+		state.metricIterFirst.Observe(duration.Seconds())
+		if duration >= state.iterFirstSlowDuration {
+			// Force trigger a compaction if Iterator.Fisrt is too slow.
+			state.compact.maybeCompact(state.actorID, int(math.MaxInt32))
+		}
 		return nil, true
 	default:
 		// Iterator is not ready yet.
@@ -608,7 +622,6 @@ func (ls *Sorter) poll(ctx context.Context, state *pollState) error {
 		return ls.router.SendB(ctx, ls.actorID, actormsg.SorterMessage(task))
 	}
 
-	startGet := time.Now()
 	var hasIter bool
 	task.IterReq, hasIter = state.tryGetIterator(ls.uid, ls.tableID)
 	// Send write/read task to leveldb.
@@ -616,10 +629,6 @@ func (ls *Sorter) poll(ctx context.Context, state *pollState) error {
 	if err != nil || !hasIter {
 		// Skip read iterator if send fails or there is no iterator.
 		return errors.Trace(err)
-	}
-	if time.Since(startGet) > 500*time.Millisecond {
-		// Force trigger a compaction if Iterator.Fisrt is too slow.
-		ls.compact.maybeCompact(ls.actorID, int(math.MaxInt32))
 	}
 
 	// Read and send resolved events from iterator.
@@ -644,6 +653,11 @@ func (ls *Sorter) Run(ctx context.Context) error {
 		maxCommitTs:         uint64(0),
 		maxResolvedTs:       uint64(0),
 		exhaustedResolvedTs: uint64(0),
+
+		actorID:               ls.actorID,
+		compact:               ls.compact,
+		iterFirstSlowDuration: ls.iterFirstSlowDuration,
+		iterMaxAliveDuration:  ls.iterMaxAliveDuration,
 
 		metricIterFirst:   ls.metricIterDuration.WithLabelValues("first"),
 		metricIterRelease: ls.metricIterDuration.WithLabelValues("release"),
