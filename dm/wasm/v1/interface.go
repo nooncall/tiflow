@@ -21,6 +21,10 @@ import "github.com/pingcap/tiflow/dm/wasm/common"
 
 // Exports contains ABI that exported by wasm module.
 type Exports interface {
+	ProxyOnContextCreate(contextID int32, parentContextID int32) error
+	ProxyOnDone(contextID int32) (int32, error)
+	ProxyOnLog(contextID int32) error
+	ProxyOnDelete(contextID int32) error
 }
 
 type ImportsHandler interface {
@@ -39,4 +43,8 @@ type ImportsHandler interface {
 	// foreign
 	CallForeignFunction(funcName string, param []byte) ([]byte, WasmResult)
 	GetFuncCallData() common.IoBuffer
+
+	// for golang host environment
+	// Wait until async call return, eg. sync http call in golang
+	Wait() Action
 }

@@ -21,20 +21,28 @@ import (
 	"github.com/pingcap/tiflow/dm/wasm/common"
 )
 
-func RegisterImports(instance common.WasmInstance) {
-	_ = instance.RegisterFunc("env", "proxy_log", ProxyLog)
-
-	_ = instance.RegisterFunc("env", "proxy_set_effective_context", ProxySetEffectiveContext)
-
+func RegisterImports(instance common.WasmInstance) error {
+	if err := instance.RegisterFunc("env", "proxy_log", ProxyLog); err != nil {
+		return err
+	}
+	if err := instance.RegisterFunc("env", "proxy_set_effective_context", ProxySetEffectiveContext); err != nil {
+		return err
+	}
 	//_ = instance.RegisterFunc("env", "proxy_get_property", ProxyGetProperty)
 	//_ = instance.RegisterFunc("env", "proxy_set_property", ProxySetProperty)
-
-	_ = instance.RegisterFunc("env", "proxy_get_buffer_bytes", ProxyGetBufferBytes)
-	_ = instance.RegisterFunc("env", "proxy_set_buffer_bytes", ProxySetBufferBytes)
-
-	_ = instance.RegisterFunc("env", "proxy_done", ProxyDone)
-
-	_ = instance.RegisterFunc("env", "proxy_call_foreign_function", ProxyCallForeignFunction)
+	if err := instance.RegisterFunc("env", "proxy_get_buffer_bytes", ProxyGetBufferBytes); err != nil {
+		return err
+	}
+	if err := instance.RegisterFunc("env", "proxy_set_buffer_bytes", ProxySetBufferBytes); err != nil {
+		return err
+	}
+	if err := instance.RegisterFunc("env", "proxy_done", ProxyDone); err != nil {
+		return err
+	}
+	if err := instance.RegisterFunc("env", "proxy_call_foreign_function", ProxyCallForeignFunction); err != nil {
+		return err
+	}
+	return nil
 }
 
 func ProxyLog(instance common.WasmInstance, level int32, logDataPtr int32, logDataSize int32) int32 {
