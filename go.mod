@@ -80,6 +80,7 @@ require (
 	github.com/uber-go/atomic v1.4.0
 	github.com/unrolled/render v1.0.1
 	github.com/vmihailenco/msgpack/v5 v5.3.5
+	github.com/wasmerio/wasmer-go v1.0.4
 	github.com/xdg/scram v0.0.0-20180814205039-7eeb5667e42c
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20210512015243-d19fbe541bf9
 	go.uber.org/atomic v1.9.0

@@ -15,6 +15,8 @@ package master
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -402,6 +404,121 @@ func subtaskCfgPointersToInstances(stCfgPointers ...*config.SubTaskConfig) []con
 		stCfgs = append(stCfgs, *stCfg)
 	}
 	return stCfgs
+}
+
+const WasmPath = "/wasm"
+
+func (s *Server) QueryWasmModules(ctx context.Context, req *pb.QueryWasmModulesRequest) (*pb.QueryWasmModulesResponse, error) {
+	res, err := s.etcdClient.Get(ctx, WasmPath, clientv3.WithFromKey())
+	if err != nil {
+		return nil, err
+	}
+
+	modules := []*pb.WasmModule{}
+	for _, kv := range res.Kvs {
+		module, err := unmarshalWasmModule(kv.Value)
+		if err != nil {
+			return nil, err
+		}
+		modules = append(modules, module)
+	}
+	return &pb.QueryWasmModulesResponse{
+		Result:  true,
+		Modules: modules,
+	}, nil
+}
+
+func wasmModuleKey(moduleName string) string {
+	return fmt.Sprintf("%s/%s", WasmPath, moduleName)
+}
+
+func (s *Server) WasmModuleExist(ctx context.Context, name string) (bool, error) {
+	res, err := s.etcdClient.Get(ctx, wasmModuleKey(name))
+	if err != nil {
+		return false, err
+	}
+
+	return len(res.Kvs) > 0, nil
+}
+
+func marshalWasmModuleToString(module *pb.WasmModule) (string, error) {
+	data := map[string]string{
+		"name":           module.Name,
+		"md5":            module.Md5,
+		"content_base64": base64.StdEncoding.EncodeToString(module.Content),
+	}
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		return "", err
+	}
+	return string(jsonBytes), nil
+}
+
+func unmarshalWasmModule(data []byte) (*pb.WasmModule, error) {
+	raw := map[string]string{}
+	err := json.Unmarshal(data, &raw)
+	if err != nil {
+		return nil, err
+	}
+
+	content, err := base64.StdEncoding.DecodeString(raw["content_base64"])
+	if err != nil {
+		return nil, err
+	}
+	return &pb.WasmModule{
+		Name:    raw["name"],
+		Md5:     raw["md5"],
+		Content: content,
+	}, nil
+}
+
+func (s *Server) LoadWasmModule(ctx context.Context, req *pb.LoadWasmModuleRequest) (*pb.LoadWasmModuleResponse, error) {
+	alreadyExists, err := s.WasmModuleExist(ctx, req.Module.Name)
+	if err != nil {
+		return nil, err
+	}
+	if alreadyExists && !req.Override {
+		return &pb.LoadWasmModuleResponse{
+			Result: false,
+			Msg:    fmt.Sprintf("wasm module `%s` already exists. use `override` to override it", req.Module.Name),
+		}, nil
+	}
+
+	moduleStr, err := marshalWasmModuleToString(req.Module)
+	if err != nil {
+		return nil, err
+	}
+	_, err = s.etcdClient.Put(ctx, wasmModuleKey(req.Module.Name), moduleStr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.LoadWasmModuleResponse{
+		Result: true,
+	}, nil
+}
+
+func (s *Server) UnloadWasmModule(ctx context.Context, req *pb.UnLoadWasmModuleRequest) (*pb.UnLoadWasmModuleResponse, error) {
+	exists, err := s.WasmModuleExist(ctx, req.Name)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return &pb.UnLoadWasmModuleResponse{
+			Result: false,
+			Msg:    fmt.Sprintf("wasm module `%s` not found", req.Name),
+		}, nil
+	}
+
+	_, err = s.etcdClient.Delete(ctx, wasmModuleKey(req.Name))
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &pb.UnLoadWasmModuleResponse{
+		Result: true,
+	}
+	return resp, nil
 }
 
 // StartTask implements MasterServer.StartTask.
