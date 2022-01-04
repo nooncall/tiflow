@@ -22,10 +22,10 @@ ifeq (${CDC_ENABLE_VENDOR}, 1)
 GOVENDORFLAG := -mod=vendor
 endif
 
-GOBUILD  := CGO_ENABLED=0 $(GO) build $(BUILD_FLAG) -trimpath $(GOVENDORFLAG)
-GOBUILDNOVENDOR  := CGO_ENABLED=0 $(GO) build $(BUILD_FLAG) -trimpath
-GOTEST   := CGO_ENABLED=1 $(GO) test -p $(P) --race
-GOTESTNORACE := CGO_ENABLED=1 $(GO) test -p $(P)
+GOBUILD  := $(GO) build $(BUILD_FLAG) -trimpath $(GOVENDORFLAG)
+GOBUILDNOVENDOR  := $(GO) build $(BUILD_FLAG) -trimpath
+GOTEST   := $(GO) test -p $(P) --race
+GOTESTNORACE := $(GO) test -p $(P)
 
 ARCH  := "$(shell uname -s)"
 LINUX := "Linux"
