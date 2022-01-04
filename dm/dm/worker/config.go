@@ -77,6 +77,8 @@ func NewConfig() *Config {
 	fs.StringVar(&cfg.SSLKey, "ssl-key", "", "path of file that contains X509 key in PEM format for connection")
 	fs.Var(&cfg.CertAllowedCN, "cert-allowed-cn", "the trusted common name that allowed to visit")
 
+	fs.StringVar(&cfg.WasmDir, "wasm-dir", "wasm_modules", "local wasm cache dir")
+
 	return cfg
 }
 
@@ -106,6 +108,9 @@ type Config struct {
 
 	printVersion      bool
 	printSampleConfig bool
+
+	// wasm cache dir
+	WasmDir string `toml:"wasm-dir" json:"wasm-dir"`
 }
 
 // Clone clones a config.

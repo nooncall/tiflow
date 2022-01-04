@@ -17,13 +17,14 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"os"
+	"path/filepath"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tiflow/dm/dm/ctl/common"
 	"github.com/pingcap/tiflow/dm/dm/pb"
 	"github.com/spf13/cobra"
 	"github.com/wasmerio/wasmer-go/wasmer"
-	"os"
-	"path/filepath"
 )
 
 // NewWasmCmd creates a wasm command.

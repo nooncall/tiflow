@@ -117,6 +117,11 @@ func (s *Server) Start() error {
 		return err
 	}
 
+	err = s.WatchWasm()
+	if err != nil {
+		return err
+	}
+
 	s.setWorker(nil, true)
 
 	s.wg.Add(1)
