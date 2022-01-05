@@ -87,6 +87,11 @@ func showWasmModulesFunc(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	for i := 0; i < len(resp.Modules); i++ {
+		// wasm 模块可能很多，全都打印出来会影响展示效果。
+		resp.Modules[i].Content = nil
+	}
 	common.PrettyPrintResponse(resp)
 	return nil
 }
